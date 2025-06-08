@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.EntityFrameworkCore;
 using WebApplication2.Data;
 using WebApplication2.DTOs;
 using WebApplication2.Exceptions;
@@ -8,86 +9,90 @@ namespace WebApplication2.Services;
 
 public interface IDbService
 {
-    public Task<IEnumerable<GetPolitykResponse>> GetPolitykDetails();
-    public Task<GetPolitykResponse>  CreatePolityk(CreatePolitykRequest request);
+    public Task<IEnumerable<GetStudentResponse>> GetStudentDetails();
+    public Task<GetCourseResponse>  CreateCourseWithEnroll(CreateCourseRequest request);
 
 }
 public class DbService(MyDbContext data) : IDbService
 {
-    public async Task<IEnumerable<GetPolitykResponse>> GetPolitykDetails()
+    public async Task<IEnumerable<GetStudentResponse>> GetStudentDetails()
     {
-        return await data.Politycy.Select(p => new GetPolitykResponse
+        return await data.Students.Select(p => new GetStudentResponse
         {
+            
+            
             Id = p.Id,
-            Imie = p.Imie,
-            Nazwisko = p.Nazwisko,
-            Powiedzenie = p.Powiedzenie,
-            Przynaleznosci = p.Przynaleznosci.Select(e => new PrzynaleznoscResponse
+            LastName = p.LastName,
+            FirstName = p.FirstName,
+            Email = p.Email,
+
+            Enrollments = p.Enrollments.Select(e => new EnrollmentResponse
             {
-                Nazwa = e.Partia.Nazwa,
-                Skrot = e.Partia.Skrot,
-                DataZalozenia = e.Partia.DataZalozenia,
-                Od = e.Od,
-                Do = e.Do,
+                ID = e.Course.Id,
+                Title = e.Course.Title,
+                Teacher = e.Course.Teacher,
+                EnrollmentDate = e.EnrollmentDate,
+                
+
             })
+            
         }).ToListAsync();
     }
     
 
-    public async Task<GetPolitykResponse> CreatePolityk(CreatePolitykRequest request)
+    public async Task<GetCourseResponse> CreateCourseWithEnroll(CreateCourseRequest request)
     {
-        //1. pobieramy partie i sprawdzamy czy istnieją
-        //2. dodac polityka do bazy
-        //3. opcjonalnie dodac info o przynaleznosciach
-        //4. zwroc info o utworzonym obiekcie
-
-        List<Partia> partie = [];        
+        //1. walidujemy dane
+        //2. tworzymy kurs
+        //3. tworzyny enrollment
         
-        if (request.Przynaleznosc != null && request.Przynaleznosc.Any())
-        {
-            partie = await data.Partie.Where(p => request.Przynaleznosc.Contains(p.Id)).ToListAsync();
 
-            foreach (var id in request.Przynaleznosc)
+        var missingStudents = request.Students
+            .Where(m => !data.Students.Any(db => db.Id == m.Id));
+
+        foreach (var student in missingStudents)
+        {
+            var Student = new Student
             {
-                if (partie.FirstOrDefault(p => p.Id == id) == null)
-                {
-                    throw new NotFoundException($"Id {id} not found");
-                }
-            }
-            
+                Id = student.Id,
+                Email = student.Email,
+                FirstName = student.FirstName,
+                LastName = student.LastName,
+            };
+            await data.AddAsync(Student);
         }
-
-        var polityk = new Polityk
+        
+        
+        var Course = new Course()
         {
-            Imie = request.Imie,
-            Nazwisko = request.Nazwisko,
-            Powiedzenie = request.Powiedzenie,
-            Przynaleznosci = partie.Select(p => new Przynaleznosc
-            {
-                Od = DateTime.Now,
-                Partia = p,
-                Do = null
-            }).ToList()
+            Title = request.Title,
+            Credits = request.Credits,
+            Teacher = request.Teacher,
         };
         
-        await data.AddAsync(polityk);
+        await data.AddAsync(Course);
+
+
+        foreach (var student in request.Students)
+        {
+            var Enrollment = new Enrollment()
+            {
+                Course_ID = request.CourseId,
+                Student_ID = student.Id,
+                EnrollmentDate = request.EnrollmentDate
+            };
+            await data.AddAsync(Enrollment);
+
+        }
+        
+
+        
+        
         await data.SaveChangesAsync();
 
-        return new GetPolitykResponse
+        return new GetCourseResponse()
         {
-            Id = polityk.Id,
-            Imie = polityk.Imie,
-            Nazwisko = polityk.Nazwisko,
-            Powiedzenie = polityk.Powiedzenie,
-            Przynaleznosci = polityk.Przynaleznosci.Select(e => new PrzynaleznoscResponse
-            {
-                DataZalozenia = e.Partia.DataZalozenia,
-                Od = e.Od,
-                Do = e.Do,
-                Nazwa = e.Partia.Nazwa,
-                Skrot = e.Partia.Skrot,
-            })
-        };
-
+            message = "Course created successfully",
+        };    
     }
 }
